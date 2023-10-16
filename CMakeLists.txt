@@ -30,16 +30,22 @@ endif()
 
 ### Executable ----------------------------------------------------------------
 
-add_executable(${PROJECT_NAME} main.c)
+add_executable(${PROJECT_NAME}
+        src/main.c
+        include/common.h
+        include/ui.h
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE include)
 
 ### Library linkage -----------------------------------------------------------
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
 if (APPLE)
-    target_link_libraries(${PROJECT_NAME} "-framework IOKit")
-    target_link_libraries(${PROJECT_NAME} "-framework Cocoa")
-    target_link_libraries(${PROJECT_NAME} "-framework OpenGL")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework IOKit")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework OpenGL")
 endif()
 
 ### Web build via emscripten --------------------------------------------------
