@@ -7,6 +7,8 @@ project(fiddle C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 
+set(DATA_DIR "${CMAKE_SOURCE_DIR}/data")
+
 # Raylib specific flags
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE) # don't build the supplied examples
 set(BUILD_GAMES    OFF CACHE BOOL "" FORCE) # don't build the supplied example games
@@ -45,8 +47,8 @@ if (NOT raygui_FOUND)
     if (NOT raygui_POPULATED)
         set(FETCHCONTENT_QUIET NO)
         FetchContent_Populate(raygui)
-        # single file header-only library
-        # added as an include directory via ${raygui_SOURCE_DIR}
+        # the single file header-only library is added
+        # as a target include directory via ${raygui_SOURCE_DIR}
     endif()
 endif()
 
@@ -60,6 +62,7 @@ add_executable(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME}
         PRIVATE "${raygui_SOURCE_DIR}/src"
+        PRIVATE "${raygui_SOURCE_DIR}/styles"
         PRIVATE include
 )
 

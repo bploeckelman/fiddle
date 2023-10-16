@@ -4,6 +4,7 @@
 
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
+#include "dark/style_dark.h"
 
 #if defined(PLATFORM_WEB)
     #include <emscripten/emscripten.h>
@@ -74,6 +75,8 @@ static void UpdateDrawFrame(void);
 
 int main() {
     InitWindow(state.window.width, state.window.height, state.window.title);
+
+    GuiLoadStyleDark();
 
 #if defined(USE_SECONDARY_MONITOR)
     // NOTE - this forces fullscreen which is kind of shitty...
@@ -184,32 +187,47 @@ static void UpdateDrawFrame(void) {
     UpdateFrame(&state.player, &state.overheadCamera);
 
     BeginDrawing();
+    {
         ClearBackground(SKYBLUE);
 
         // draw world
         BeginMode2D(state.overheadCamera);
-
+        {
             // draw a grid centered around 0,0
             rlPushMatrix();
-                rlTranslatef(0, 25*50, 0);
-                rlRotatef(90, 1, 0, 0);
-                DrawGrid(100, 50);
+            rlTranslatef(0, 25 * 50, 0);
+            rlRotatef(90, 1, 0, 0);
+            DrawGrid(100, 50);
             rlPopMatrix();
 
+            // draw the map tiles
             for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++) {
                 DrawRectangleRec(state.tiles[i], getMapColor(i));
             }
+
+            // draw the player
             DrawCircleV(state.player.pos, 10.0f, GOLD);
-            DrawCircleV(state.player.pos,  8.0f, PURPLE);
+            DrawCircleV(state.player.pos, 8.0f, PURPLE);
+        }
         EndMode2D();
 
         // draw ui
-        static bool checked = false;
-        GuiCheckBox((Rectangle) { 10, 40, 20, 20 }, GuiIconText(ICON_OK_TICK, "Checkbox"), &checked);
-        if (checked) {
-            DrawText("Hey, you checked my box!", 10, 10, 20, DARKGRAY);
-        } else {
-            DrawText("Look at me, I'm a window!", 10, 10, 20, DARKGRAY);
+        {
+            Rectangle guiArea = (Rectangle) {0, 0, 300, 80};
+            DrawRectangleRounded(guiArea, 0.1f, 20, GetColor(GuiGetStyle(DEFAULT, BACKGROUND_COLOR)));
+
+            static bool checked = false;
+            GuiCheckBox(
+                    (Rectangle) {10, 40, 20, 20},
+                    checked ? GuiIconText(ICON_OK_TICK, "Checkbox") : GuiIconText(ICON_BOX, "Checkbox"),
+                    &checked
+            );
+            if (checked) {
+                DrawText("Hey, you checked my box!", 10, 10, 20, LIGHTGRAY);
+            } else {
+                DrawText("Look at me, I'm a window!", 10, 10, 20, LIGHTGRAY);
+            }
         }
+    }
     EndDrawing();
 }
