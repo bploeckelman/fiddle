@@ -2,6 +2,9 @@
 
 #include "raylib.h"
 
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
+
 #if defined(PLATFORM_WEB)
     #include <emscripten/emscripten.h>
 #endif
@@ -201,6 +204,12 @@ static void UpdateDrawFrame(void) {
         EndMode2D();
 
         // draw ui
-        DrawText("Look at me, I'm a window!", 10, 10, 20, DARKGRAY);
+        static bool checked = false;
+        GuiCheckBox((Rectangle) { 10, 40, 20, 20 }, GuiIconText(ICON_OK_TICK, "Checkbox"), &checked);
+        if (checked) {
+            DrawText("Hey, you checked my box!", 10, 10, 20, DARKGRAY);
+        } else {
+            DrawText("Look at me, I'm a window!", 10, 10, 20, DARKGRAY);
+        }
     EndDrawing();
 }

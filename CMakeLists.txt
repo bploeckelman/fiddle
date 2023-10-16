@@ -7,12 +7,18 @@ project(fiddle C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 
+# Raylib specific flags
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE) # don't build the supplied examples
+set(BUILD_GAMES    OFF CACHE BOOL "" FORCE) # don't build the supplied example games
+set(RAYLIB_VERSION 4.5.0)
+set(RAYGUI_VERSION 4.0)
+
+include(FetchContent)
+
 ### Dependencies --------------------------------------------------------------
 
-set(RAYLIB_VERSION 4.5.0)
-find_package(raylib ${RAYLIB_VERSION} QUIET) # QUIET or REQUIRED
-if (NOT raylib_FOUND) # If there's none, fetch and build raylib
-    include(FetchContent)
+find_package(raylib ${RAYLIB_VERSION} QUIET)
+if (NOT raylib_FOUND)
     FetchContent_Declare(
             raylib
             DOWNLOAD_EXTRACT_TIMESTAMP OFF
@@ -23,8 +29,24 @@ if (NOT raylib_FOUND) # If there's none, fetch and build raylib
     if (NOT raylib_POPULATED) # Have we downloaded raylib yet?
         set(FETCHCONTENT_QUIET NO)
         FetchContent_Populate(raylib)
-        set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE) # don't build the supplied examples
         add_subdirectory(${raylib_SOURCE_DIR} ${raylib_BINARY_DIR})
+    endif()
+endif()
+
+find_package(raygui ${RAYGUI_VERSION} QUIET)
+if (NOT raygui_FOUND)
+    FetchContent_Declare(
+            raygui
+            DOWNLOAD_EXTRACT_TIMESTAMP OFF
+            URL https://github.com/raysan5/raygui/archive/refs/tags/${RAYGUI_VERSION}.tar.gz
+    )
+    FetchContent_GetProperties(raygui)
+
+    if (NOT raygui_POPULATED)
+        set(FETCHCONTENT_QUIET NO)
+        FetchContent_Populate(raygui)
+        # single file header-only library
+        # added as an include directory via ${raygui_SOURCE_DIR}
     endif()
 endif()
 
@@ -36,7 +58,10 @@ add_executable(${PROJECT_NAME}
         include/ui.h
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE include)
+target_include_directories(${PROJECT_NAME}
+        PRIVATE "${raygui_SOURCE_DIR}/src"
+        PRIVATE include
+)
 
 ### Library linkage -----------------------------------------------------------
 
