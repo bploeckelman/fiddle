@@ -32,12 +32,19 @@ typedef struct State {
     } window;
 
     Camera2D overheadCamera;
-    Camera3D playerCamera;
+    Camera3D firstPersonCamera;
 
     struct Player {
         Vector2 pos;
         Vector2 speed;
     } player;
+
+    struct RenderTextures {
+        RenderTexture overhead;
+        RenderTexture firstPerson;
+    } renderTextures;
+
+    Rectangle splitScreenRect;
 
     u8 map[MAP_SIZE * MAP_SIZE];
     Rectangle tiles[MAP_SIZE * MAP_SIZE];
@@ -93,14 +100,33 @@ int main() {
     state.player.pos   = (Vector2) { .x = 100, .y = 100 };
     state.player.speed = (Vector2) { .x = 500, .y = 500 };
 
-    // setup camera
-    state.overheadCamera.target = state.player.pos;
-    state.overheadCamera.offset = (Vector2) {
-        .x = (float) state.window.width / 2.0f,
-        .y = (float) state.window.height / 2.0f
+    state.overheadCamera = (Camera2D) {
+        .offset = (Vector2) {
+            .x = (float) state.window.width / 2.0f,
+            .y = (float) state.window.height / 2.0f
+        },
+        .target = state.player.pos,
+        .rotation = 0,
+        .zoom = 1
     };
-    state.overheadCamera.rotation = 0.0f;
-    state.overheadCamera.zoom = 1.0f;
+    state.firstPersonCamera = (Camera3D) {
+        .position = (Vector3) { -3, 3, 0 },
+        .target = (Vector3) { 0, 3, 0 },
+        .up = (Vector3) { 0, 1, 0 },
+        .fovy = 45,
+        .projection = CAMERA_PERSPECTIVE
+    };
+
+    state.renderTextures = (struct RenderTextures) {
+        .overhead = LoadRenderTexture(state.window.width / 2, state.window.height),
+        .firstPerson = LoadRenderTexture(state.window.width / 2, state.window.height)
+    };
+
+    state.splitScreenRect = (Rectangle) {
+        0, 0,
+        (float) state.renderTextures.overhead.texture.width,
+        (float) -state.renderTextures.overhead.texture.height
+    };
 
     // load map data for visualization
     const float tileSize = 50;
@@ -123,6 +149,9 @@ int main() {
         UpdateDrawFrame();
     }
 #endif
+
+    UnloadRenderTexture(state.renderTextures.overhead);
+    UnloadRenderTexture(state.renderTextures.firstPerson);
 
     CloseWindow();
 
@@ -148,7 +177,7 @@ static Color getMapColor(int mapIndex) {
     }
 }
 
-static void UpdateFrame(struct Player *player, Camera2D *camera) {
+static void UpdateFrame(struct Player *player, Camera2D *camera, Camera3D *firstPersonCamera) {
     // handle movement input
     if      (IsKeyDown(KEY_A)) player->pos.x -= player->speed.x * GetFrameTime();
     else if (IsKeyDown(KEY_D)) player->pos.x += player->speed.x * GetFrameTime();
@@ -181,16 +210,20 @@ static void UpdateFrame(struct Player *player, Camera2D *camera) {
         camera->rotation = 0.0f;
         camera->zoom = 1.0f;
     }
+
+    // TODO - switch this so the first person cam updates via user input and the overhead cam follows where the 'player' is on the map
+    // update first person cam based on movement in overhead cam
+//    firstPersonCamera->position = (Vector3) { player->pos.x, 0, player->pos.y };
 }
 
 static void UpdateDrawFrame(void) {
-    UpdateFrame(&state.player, &state.overheadCamera);
+    UpdateFrame(&state.player, &state.overheadCamera, &state.firstPersonCamera);
 
-    BeginDrawing();
+    // draw to overhead texture
+    BeginTextureMode(state.renderTextures.overhead);
     {
         ClearBackground(SKYBLUE);
 
-        // draw world
         BeginMode2D(state.overheadCamera);
         {
             // draw a grid centered around 0,0
@@ -211,23 +244,68 @@ static void UpdateDrawFrame(void) {
         }
         EndMode2D();
 
-        // draw ui
-        {
-            Rectangle guiArea = (Rectangle) {0, 0, 300, 80};
-            DrawRectangleRounded(guiArea, 0.1f, 20, GetColor(GuiGetStyle(DEFAULT, BACKGROUND_COLOR)));
+        // not sure what this is about
+        DrawRectangle(0, 0, GetScreenWidth() / 2, 40, Fade(RAYWHITE, 0.8f));
+        DrawText("Overhead", 10, 10, 20, MAROON);
+    }
+    EndTextureMode();
 
-            static bool checked = false;
-            GuiCheckBox(
-                    (Rectangle) {10, 40, 20, 20},
-                    checked ? GuiIconText(ICON_OK_TICK, "Checkbox") : GuiIconText(ICON_BOX, "Checkbox"),
-                    &checked
-            );
-            if (checked) {
-                DrawText("Hey, you checked my box!", 10, 10, 20, LIGHTGRAY);
-            } else {
-                DrawText("Look at me, I'm a window!", 10, 10, 20, LIGHTGRAY);
+
+    BeginTextureMode(state.renderTextures.firstPerson);
+    {
+        ClearBackground(SKYBLUE);
+
+        BeginMode3D(state.firstPersonCamera);
+        {
+            // Draw scene: grid of cube trees on a plane to make a "world"
+            DrawPlane((Vector3){ 0, 0, 0 }, (Vector2){ 50, 50 }, BEIGE); // Simple world plane
+
+            const int count = 5;
+            const float spacing = 4;
+            for (float x = -count*spacing; x <= count*spacing; x += spacing) {
+                for (float z = -count*spacing; z <= count*spacing; z += spacing) {
+                    DrawCube((Vector3) { x, 1.5f, z }, 1, 1, 1, LIME);
+                    DrawCube((Vector3) { x, 0.5f, z }, 0.25f, 1, 0.25f, BROWN);
+                }
             }
+
+            // Draw a cube at each player's position
+            DrawCube((Vector3) { 0, 0, 0 }, 1, 1, 1, RED);
+            DrawCube((Vector3) { 50, 0, 50 }, 1, 1, 1, BLUE);
         }
+        EndMode3D();
+
+        // not sure what this is about
+        DrawRectangle(0, 0, GetScreenWidth() / 2, 40, Fade(RAYWHITE, 0.8f));
+        DrawText("FirstPerson", 10, 10, 20, MAROON);
+    }
+    EndTextureMode();
+
+
+    BeginDrawing();
+    {
+        ClearBackground(BLACK);
+
+        DrawTextureRec(state.renderTextures.overhead.texture, state.splitScreenRect, (Vector2) { 0, 0 }, WHITE);
+        DrawTextureRec(state.renderTextures.firstPerson.texture, state.splitScreenRect, (Vector2) { GetScreenWidth() / 2, 0 }, WHITE);
+
+        // draw ui
+//        {
+//            Rectangle guiArea = (Rectangle) {0, 0, 300, 80};
+//            DrawRectangleRounded(guiArea, 0.1f, 20, GetColor(GuiGetStyle(DEFAULT, BACKGROUND_COLOR)));
+//
+//            static bool checked = false;
+//            GuiCheckBox(
+//                    (Rectangle) {10, 40, 20, 20},
+//                    checked ? GuiIconText(ICON_OK_TICK, "Checkbox") : GuiIconText(ICON_BOX, "Checkbox"),
+//                    &checked
+//            );
+//            if (checked) {
+//                DrawText("Hey, you checked my box!", 10, 10, 20, LIGHTGRAY);
+//            } else {
+//                DrawText("Look at me, I'm a window!", 10, 10, 20, LIGHTGRAY);
+//            }
+//        }
     }
     EndDrawing();
 }
