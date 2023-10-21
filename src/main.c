@@ -1,6 +1,8 @@
 #include <stdio.h>
 
 #include "raylib.h"
+#include "raymath.h"
+#include "rlgl.h"
 
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
@@ -11,10 +13,9 @@
 #endif
 
 #include "common.h"
-#include "rlgl.h"
 
 // NOTE - for convenience when primary monitor is otherwise in use
-//#define USE_SECONDARY_MONITOR 1
+//#define USE_SECONDARY_MONITOR
 
 // ----------------------------------------------------------------------------
 // Game state data
@@ -48,6 +49,10 @@ typedef struct State {
 
     u8 map[MAP_SIZE * MAP_SIZE];
     Rectangle tiles[MAP_SIZE * MAP_SIZE];
+
+    Model model;
+    float modelRotationY;
+    float modelRotationZ;
 } State;
 
 static State state = {
@@ -92,8 +97,8 @@ int main() {
     // manually position it in the center of the secondary monitor
     int secondaryMonitorWidth = GetMonitorWidth(1);
     int secondaryMonitorHeight = GetMonitorHeight(1);
-    int winPosX = -secondaryMonitorWidth + (secondaryMonitorWidth - windowWidth) / 2;
-    int winPosY = (secondaryMonitorHeight - windowHeight) / 2;
+    int winPosX = -secondaryMonitorWidth + (secondaryMonitorWidth - state.window.width) / 2;
+    int winPosY = (secondaryMonitorHeight - state.window.height) / 2;
     SetWindowPosition(winPosX, winPosY);
 #endif
 
@@ -141,6 +146,10 @@ int main() {
         };
     }
 
+    state.model = LoadModel("data/models/coin.gltf.glb");
+    state.modelRotationY = 0.f;
+    state.modelRotationZ = 90.f;
+
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
 #else
@@ -149,6 +158,8 @@ int main() {
         UpdateDrawFrame();
     }
 #endif
+
+    UnloadModel(state.model);
 
     UnloadRenderTexture(state.renderTextures.overhead);
     UnloadRenderTexture(state.renderTextures.firstPerson);
@@ -178,11 +189,13 @@ static Color getMapColor(int mapIndex) {
 }
 
 static void UpdateFrame(struct Player *player, Camera2D *camera, Camera3D *firstPersonCamera) {
+    float dt = GetFrameTime();
+
     // handle movement input
-    if      (IsKeyDown(KEY_A)) player->pos.x -= player->speed.x * GetFrameTime();
-    else if (IsKeyDown(KEY_D)) player->pos.x += player->speed.x * GetFrameTime();
-    if      (IsKeyDown(KEY_W)) player->pos.y -= player->speed.y * GetFrameTime();
-    else if (IsKeyDown(KEY_S)) player->pos.y += player->speed.y * GetFrameTime();
+    if      (IsKeyDown(KEY_A)) player->pos.x -= player->speed.x * dt;
+    else if (IsKeyDown(KEY_D)) player->pos.x += player->speed.x * dt;
+    if      (IsKeyDown(KEY_W)) player->pos.y -= player->speed.y * dt;
+    else if (IsKeyDown(KEY_S)) player->pos.y += player->speed.y * dt;
 
     // update the camera based on the player's (possibly moved) position
     camera->target = player->pos;
@@ -214,6 +227,14 @@ static void UpdateFrame(struct Player *player, Camera2D *camera, Camera3D *first
     // TODO - switch this so the first person cam updates via user input and the overhead cam follows where the 'player' is on the map
     // update first person cam based on movement in overhead cam
 //    firstPersonCamera->position = (Vector3) { player->pos.x, 0, player->pos.y };
+
+    // rotate the model
+    float rotationSpeed = 300.f;
+    state.modelRotationY += rotationSpeed * dt;
+    Matrix rotY = MatrixRotateY(DEG2RAD * state.modelRotationY);
+    Matrix rotZ = MatrixRotateZ(DEG2RAD * state.modelRotationZ);
+    Matrix modelTransform = MatrixMultiply(rotZ, rotY);
+    state.model.transform = modelTransform;
 }
 
 static void UpdateDrawFrame(void) {
@@ -272,6 +293,9 @@ static void UpdateDrawFrame(void) {
             // Draw a cube at each player's position
             DrawCube((Vector3) { 0, 0, 0 }, 1, 1, 1, RED);
             DrawCube((Vector3) { 50, 0, 50 }, 1, 1, 1, BLUE);
+
+            // Draw a 3d model for testing
+            DrawModel(state.model, (Vector3) { 0, 3.f, 0 }, 1, WHITE);
         }
         EndMode3D();
 
