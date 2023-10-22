@@ -8,8 +8,18 @@
 #include "raygui.h"
 #include "dark/style_dark.h"
 
+#define RLIGHTS_IMPLEMENTATION
+#include "rlights.h"
+
 #if defined(PLATFORM_WEB)
     #include <emscripten/emscripten.h>
+#endif
+
+// TODO - verify that android/web can't support glsl 330
+#if defined(PLATFORM_DESKTOP)
+#define GLSL_VERSION            330
+#else   // PLATFORM_ANDROID, PLATFORM_WEB
+#define GLSL_VERSION            100
 #endif
 
 #include "common.h"
@@ -20,40 +30,6 @@
 // ----------------------------------------------------------------------------
 // Game state data
 // ----------------------------------------------------------------------------
-
-enum ConstExpr {
-    MAP_SIZE = 9
-};
-
-typedef struct State {
-    struct Window {
-        int width;
-        int height;
-        char *title;
-    } window;
-
-    Camera2D overheadCamera;
-    Camera3D firstPersonCamera;
-
-    struct Player {
-        Vector2 pos;
-        Vector2 speed;
-    } player;
-
-    struct RenderTextures {
-        RenderTexture overhead;
-        RenderTexture firstPerson;
-    } renderTextures;
-
-    Rectangle splitScreenRect;
-
-    u8 map[MAP_SIZE * MAP_SIZE];
-    Rectangle tiles[MAP_SIZE * MAP_SIZE];
-
-    Model model;
-    float modelRotationY;
-    float modelRotationZ;
-} State;
 
 static State state = {
         .window = {
@@ -79,6 +55,8 @@ static State state = {
 // Forward declarations
 // ----------------------------------------------------------------------------
 
+static void InitGameData(void);
+static void UnloadGameData(void);
 static void UpdateDrawFrame(void);
 
 // ----------------------------------------------------------------------------
@@ -86,7 +64,10 @@ static void UpdateDrawFrame(void);
 // ----------------------------------------------------------------------------
 
 int main() {
+    SetConfigFlags(FLAG_MSAA_4X_HINT);  // Enable Multi Sampling Anti Aliasing 4x (if available)
+
     InitWindow(state.window.width, state.window.height, state.window.title);
+    InitGameData();
 
     GuiLoadStyleDark();
 
@@ -102,54 +83,6 @@ int main() {
     SetWindowPosition(winPosX, winPosY);
 #endif
 
-    state.player.pos   = (Vector2) { .x = 100, .y = 100 };
-    state.player.speed = (Vector2) { .x = 500, .y = 500 };
-
-    state.overheadCamera = (Camera2D) {
-        .offset = (Vector2) {
-            .x = (float) state.window.width / 2.0f,
-            .y = (float) state.window.height / 2.0f
-        },
-        .target = state.player.pos,
-        .rotation = 0,
-        .zoom = 1
-    };
-    state.firstPersonCamera = (Camera3D) {
-        .position = (Vector3) { -3, 3, 0 },
-        .target = (Vector3) { 0, 3, 0 },
-        .up = (Vector3) { 0, 1, 0 },
-        .fovy = 45,
-        .projection = CAMERA_PERSPECTIVE
-    };
-
-    state.renderTextures = (struct RenderTextures) {
-        .overhead = LoadRenderTexture(state.window.width / 2, state.window.height),
-        .firstPerson = LoadRenderTexture(state.window.width / 2, state.window.height)
-    };
-
-    state.splitScreenRect = (Rectangle) {
-        0, 0,
-        (float) state.renderTextures.overhead.texture.width,
-        (float) -state.renderTextures.overhead.texture.height
-    };
-
-    // load map data for visualization
-    const float tileSize = 50;
-    for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++) {
-        int x = i % MAP_SIZE;
-        int y = i / MAP_SIZE;
-        state.tiles[i] = (Rectangle) {
-            .x = x * tileSize,
-            .y = y * tileSize,
-            .width = tileSize,
-            .height = tileSize
-        };
-    }
-
-    state.model = LoadModel("data/models/coin.gltf.glb");
-    state.modelRotationY = 0.f;
-    state.modelRotationZ = 90.f;
-
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
 #else
@@ -159,10 +92,7 @@ int main() {
     }
 #endif
 
-    UnloadModel(state.model);
-
-    UnloadRenderTexture(state.renderTextures.overhead);
-    UnloadRenderTexture(state.renderTextures.firstPerson);
+    UnloadGameData();
 
     CloseWindow();
 
@@ -172,6 +102,100 @@ int main() {
 // ----------------------------------------------------------------------------
 // Implementation
 // ----------------------------------------------------------------------------
+
+static void InitGameData() {
+    state.player.pos   = (Vector2) { .x = 100, .y = 100 };
+    state.player.speed = (Vector2) { .x = 500, .y = 500 };
+
+    state.cameras.overhead = (Camera2D) {
+            .offset = (Vector2) {
+                    .x = (float) state.window.width / 2.0f,
+                    .y = (float) state.window.height / 2.0f
+            },
+            .target = state.player.pos,
+            .rotation = 0,
+            .zoom = 1
+    };
+    state.cameras.firstPerson = (Camera3D) {
+            .position = (Vector3) { -3, 3, 0 },
+            .target = (Vector3) { 0, 2.25f, 0 },
+            .up = (Vector3) { 0, 1, 0 },
+            .fovy = 45,
+            .projection = CAMERA_PERSPECTIVE
+    };
+
+    state.renderTextures = (struct RenderTextures) {
+            .overhead = LoadRenderTexture(state.window.width / 2, state.window.height),
+            .firstPerson = LoadRenderTexture(state.window.width / 2, state.window.height)
+    };
+
+    state.splitScreenRect = (Rectangle) {
+            0, 0,
+            (float) state.renderTextures.overhead.texture.width,
+            (float) -state.renderTextures.overhead.texture.height
+    };
+
+    // load map data for visualization
+    const float tileSize = 50;
+    for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++) {
+        int x = i % MAP_SIZE;
+        int y = i / MAP_SIZE;
+        state.tiles[i] = (Rectangle) {
+                .x = x * tileSize,
+                .y = y * tileSize,
+                .width = tileSize,
+                .height = tileSize
+        };
+    }
+
+    // load scene data
+    state.scene = (struct Scene) {
+        .lights = {0},
+        .shader =LoadShader(
+                TextFormat("data/shaders/glsl%i/lighting.vert", GLSL_VERSION),
+                TextFormat("data/shaders/glsl%i/lighting.frag", GLSL_VERSION)),
+        .coin = LoadModel("data/models/coin.gltf.glb"),
+        .ground = LoadModelFromMesh(GenMeshPlane(50, 50, 50, 50)),
+        .treeTrunk = LoadModelFromMesh(GenMeshCube(1, 1, 1)),
+        .treeCanopy = LoadModelFromMesh(GenMeshCube(0.25f, 1, 0.25f)),
+        .coinRotY = 0.f,
+        .coinRotZ = 90.f
+    };
+
+    // Get some required shader locations
+    state.scene.shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(state.scene.shader, "viewPos");
+    // NOTE: "matModel" location name is automatically assigned on shader loading,
+    // no need to get the location again if using that uniform name
+    //state.scene.shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(state.scene.shader, "matModel");
+
+    // Ambient light level (some basic lighting)
+    int ambientLoc = GetShaderLocation(state.scene.shader, "ambient");
+    SetShaderValue(state.scene.shader, ambientLoc, (float[4]) { 0.1f, 0.1f, 0.1f, 1.0f }, SHADER_UNIFORM_VEC4);
+
+    // Assign out lighting shader to models
+    state.scene.coin.materials[0].shader = state.scene.shader;
+    state.scene.ground.materials[0].shader = state.scene.shader;
+    state.scene.treeTrunk.materials[0].shader = state.scene.shader;
+    state.scene.treeCanopy.materials[0].shader = state.scene.shader;
+
+    // Create lights
+    state.scene.lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 1, -2 }, Vector3Zero(), YELLOW, state.scene.shader);
+    state.scene.lights[1] = CreateLight(LIGHT_POINT, (Vector3){  2, 1,  2 }, Vector3Zero(), RED,    state.scene.shader);
+    state.scene.lights[2] = CreateLight(LIGHT_POINT, (Vector3){ -2, 1,  2 }, Vector3Zero(), GREEN,  state.scene.shader);
+    state.scene.lights[3] = CreateLight(LIGHT_POINT, (Vector3){  2, 1, -2 }, Vector3Zero(), BLUE,   state.scene.shader);
+}
+
+static void UnloadGameData() {
+    UnloadModel(state.scene.coin);
+    UnloadModel(state.scene.ground);
+    UnloadModel(state.scene.treeTrunk);
+    UnloadModel(state.scene.treeCanopy);
+
+    UnloadShader(state.scene.shader);
+
+    UnloadRenderTexture(state.renderTextures.overhead);
+    UnloadRenderTexture(state.renderTextures.firstPerson);
+}
 
 static Color getMapColor(int mapIndex) {
     if (mapIndex < 0 || mapIndex >= MAP_SIZE * MAP_SIZE) {
@@ -188,8 +212,18 @@ static Color getMapColor(int mapIndex) {
     }
 }
 
-static void UpdateFrame(struct Player *player, Camera2D *camera, Camera3D *firstPersonCamera) {
+static void UpdateFrame(struct Scene *scene, struct Player *player, Camera2D *camera, Camera3D *firstPersonCamera) {
     float dt = GetFrameTime();
+
+    // update the first person camera using the raylib built-in camera controls
+    UpdateCamera(firstPersonCamera, CAMERA_PERSPECTIVE);
+    // Update the shader with the camera view vector (points towards { 0.0f, 0.0f, 0.0f })
+    float cameraPos[3] = {
+            firstPersonCamera->position.x,
+            firstPersonCamera->position.y,
+            firstPersonCamera->position.z
+    };
+    SetShaderValue(scene->shader, scene->shader.locs[SHADER_LOC_VECTOR_VIEW], cameraPos, SHADER_UNIFORM_VEC3);
 
     // handle movement input
     if      (IsKeyDown(KEY_A)) player->pos.x -= player->speed.x * dt;
@@ -224,28 +258,23 @@ static void UpdateFrame(struct Player *player, Camera2D *camera, Camera3D *first
         camera->zoom = 1.0f;
     }
 
-    // TODO - switch this so the first person cam updates via user input and the overhead cam follows where the 'player' is on the map
-    // update first person cam based on movement in overhead cam
-//    firstPersonCamera->position = (Vector3) { player->pos.x, 0, player->pos.y };
-
-    // rotate the model
+    // rotate the coin
     float rotationSpeed = 300.f;
-    state.modelRotationY += rotationSpeed * dt;
-    Matrix rotY = MatrixRotateY(DEG2RAD * state.modelRotationY);
-    Matrix rotZ = MatrixRotateZ(DEG2RAD * state.modelRotationZ);
-    Matrix modelTransform = MatrixMultiply(rotZ, rotY);
-    state.model.transform = modelTransform;
+    state.scene.coinRotY += rotationSpeed * dt;
+    state.scene.coin.transform = MatrixMultiply(
+            MatrixRotateZ(DEG2RAD * state.scene.coinRotZ),
+            MatrixRotateY(DEG2RAD * state.scene.coinRotY));
 }
 
 static void UpdateDrawFrame(void) {
-    UpdateFrame(&state.player, &state.overheadCamera, &state.firstPersonCamera);
+    UpdateFrame(&state.scene, &state.player, &state.cameras.overhead, &state.cameras.firstPerson);
 
     // draw to overhead texture
     BeginTextureMode(state.renderTextures.overhead);
     {
         ClearBackground(SKYBLUE);
 
-        BeginMode2D(state.overheadCamera);
+        BeginMode2D(state.cameras.overhead);
         {
             // draw a grid centered around 0,0
             rlPushMatrix();
@@ -276,26 +305,22 @@ static void UpdateDrawFrame(void) {
     {
         ClearBackground(SKYBLUE);
 
-        BeginMode3D(state.firstPersonCamera);
+        BeginMode3D(state.cameras.firstPerson);
         {
             // Draw scene: grid of cube trees on a plane to make a "world"
-            DrawPlane((Vector3){ 0, 0, 0 }, (Vector2){ 50, 50 }, BEIGE); // Simple world plane
+            DrawModel(state.scene.ground, (Vector3){ 0, 0, 0 }, 1, BEIGE); // Simple world plane
 
             const int count = 5;
             const float spacing = 4;
             for (float x = -count*spacing; x <= count*spacing; x += spacing) {
                 for (float z = -count*spacing; z <= count*spacing; z += spacing) {
-                    DrawCube((Vector3) { x, 1.5f, z }, 1, 1, 1, LIME);
-                    DrawCube((Vector3) { x, 0.5f, z }, 0.25f, 1, 0.25f, BROWN);
+                    DrawModel(state.scene.treeTrunk, (Vector3) { x, 1.5f, z }, 1, LIME);
+                    DrawModel(state.scene.treeCanopy, (Vector3) { x, 0.5f, z }, 1, BROWN);
                 }
             }
 
-            // Draw a cube at each player's position
-            DrawCube((Vector3) { 0, 0, 0 }, 1, 1, 1, RED);
-            DrawCube((Vector3) { 50, 0, 50 }, 1, 1, 1, BLUE);
-
             // Draw a 3d model for testing
-            DrawModel(state.model, (Vector3) { 0, 3.f, 0 }, 1, WHITE);
+            DrawModel(state.scene.coin, (Vector3) { 0, 3.f, 0 }, 1, WHITE);
         }
         EndMode3D();
 
